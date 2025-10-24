@@ -87,6 +87,21 @@ public class EmotionSigilSO : MonoBehaviour
 
         CheckInputFields("");
         OnEmotionChanged(emotionDropdown.value);
+        
+        // INITIALIZE THE CURRENT SESSION IN DICTIONARIES
+        if (string.IsNullOrEmpty(currentSessionID))
+        {
+            currentSessionID = "001";
+        }
+        if (!sessionLeaders.ContainsKey(currentSessionID))
+        {
+            sessionLeaders[currentSessionID] = null;
+        }
+        if (!sessionFollowers.ContainsKey(currentSessionID))
+        {
+            sessionFollowers[currentSessionID] = new List<int>();
+        }
+        
         LoadData();
         
         UpdateSessionStatusUI();
@@ -113,22 +128,25 @@ public class EmotionSigilSO : MonoBehaviour
 
         string nextSessionID = GenerateNextSessionID();
         
+        // Reset only current session tracking - and not clear the dictionaries
         releaseCounter = 0;
         isSessionCompleted = false;
         currentSessionID = nextSessionID;
         sessionIDInput.text = nextSessionID;
-        leader = null;
-        followerDirections.Clear();
-        followerIsIdling.Clear();
-
-        if (!sessionLeaders.ContainsKey(currentSessionID))
+        
+        // Only reset the current session's leader, not the entire system
+        sessionLeaders[currentSessionID] = null;
+        if (sessionFollowers.ContainsKey(currentSessionID))
         {
-            sessionLeaders[currentSessionID] = null;
+            sessionFollowers[currentSessionID].Clear();
         }
-        if (!sessionFollowers.ContainsKey(currentSessionID))
+        else
         {
             sessionFollowers[currentSessionID] = new List<int>();
         }
+        
+        // Reset the current leader reference
+        leader = null;
 
         Debug.Log($"Starting new session: {nextSessionID}");
 
@@ -345,50 +363,80 @@ public class EmotionSigilSO : MonoBehaviour
         {
             string sessionID = sessionPair.Key;
             Transform sessionLeader = sessionPair.Value;
-
             if (sessionLeader == null) continue;
 
-            if (sessionFollowers.ContainsKey(sessionID))
-            {
-                foreach (int followerIndex in sessionFollowers[sessionID])
-                {
-                    if (followerIndex < releasedObjects.Count && releasedObjects[followerIndex] != null)
-                    {
-                        VisualSigilsMovement movement = releasedObjects[followerIndex].GetComponent<VisualSigilsMovement>();
-                        
-                        if (movement == null) continue;
-                        if (movement.IsIdling) continue;
+            if (!sessionFollowers.ContainsKey(sessionID)) continue;
+            List<int> followers = sessionFollowers[sessionID];
 
-                        int directionIndex = GetFollowerDirectionIndex(followerIndex, sessionID);
-                        if (directionIndex >= 0 && directionIndex < followerDirections.Count)
-                        {
-                            Vector3 currentDirection = followerDirections[directionIndex];
-                            Vector3 desiredPosition = sessionLeader.position + currentDirection * minFollowDistance;
-                            
-                            float currentDistance = Vector3.Distance(releasedObjects[followerIndex].transform.position, sessionLeader.position);
-                            
-                            if (currentDistance < noEntryRadius)
-                            {
-                                Vector3 pushDirection = (releasedObjects[followerIndex].transform.position - sessionLeader.position).normalized;
-                                if (pushDirection == Vector3.zero) pushDirection = Vector3.up;
-                                desiredPosition = sessionLeader.position + pushDirection * minFollowDistance;
-                            }
-                            else if (currentDistance > maxFollowDistance)
-                            {
-                                desiredPosition = sessionLeader.position + currentDirection * minFollowDistance;
-                            }
-                            
-                            releasedObjects[followerIndex].transform.position = Vector3.Lerp(
-                                releasedObjects[followerIndex].transform.position,
-                                desiredPosition,
-                                followSmoothness * Time.deltaTime
-                            );
-                        }
-                    }
+            for (int i = 0; i < followers.Count; i++)
+            {
+                int followerIndex = followers[i];
+                if (followerIndex >= releasedObjects.Count || releasedObjects[followerIndex] == null)
+                    continue;
+
+                GameObject follower = releasedObjects[followerIndex];
+                VisualSigilsMovement movement = follower.GetComponent<VisualSigilsMovement>();
+                if (movement == null || movement.IsIdling) continue;
+
+                // Calculate distance and get direction toward leader
+                float distance = Vector3.Distance(follower.transform.position, sessionLeader.position);
+
+                // Retrieve or create a persistent offset for this follower
+                if (i >= followerDirections.Count)
+                    followerDirections.Add(Random.insideUnitSphere * 2f);
+
+                Vector3 offset = followerDirections[i];
+
+                // --- CHASE MODE (outside range) ---
+                if (distance > maxFollowDistance)
+                {
+                    Vector3 chaseTarget = sessionLeader.position + offset;
+                    follower.transform.position = Vector3.Lerp(
+                        follower.transform.position,
+                        chaseTarget,
+                        followSmoothness * Time.deltaTime
+                    );
+                }
+                else
+                {
+                    // --- FORMATION MODE (within range) ---
+                    Vector3 formationTarget = GetTriangleFormationPosition(i, sessionLeader);
+                    Vector3 bobOffset = new Vector3(
+                        0f,
+                        Mathf.Sin(Time.time * (1.5f + i * 0.3f)) * heightVariation,
+                        0f
+                    );
+
+                    Vector3 desiredPos = formationTarget + bobOffset;
+                    follower.transform.position = Vector3.Lerp(
+                        follower.transform.position,
+                        desiredPos,
+                        followSmoothness * Time.deltaTime
+                    );
                 }
             }
         }
     }
+
+// Returns smooth triangular positions around the leader
+Vector3 GetTriangleFormationPosition(int index, Transform leader)
+{
+    // Index 0,1,2 form a triangle
+    // If more than 3 followers appear, they wrap to next ring automatically
+    float spacing = minFollowDistance + (index / 3) * 0.5f;
+    int posInTri = index % 3;
+
+    Vector3 right = leader.right * spacing;
+    Vector3 forward = leader.forward * spacing;
+
+    switch (posInTri)
+    {
+        case 0: return leader.position + (-right + forward);
+        case 1: return leader.position + (right + forward);
+        default: return leader.position + (-forward * 1.2f);
+    }
+}
+
 
     int GetFollowerDirectionIndex(int followerIndex, string sessionID)
     {
@@ -435,19 +483,21 @@ public class EmotionSigilSO : MonoBehaviour
             {
                 VisualSigilsMovement movement = obj.GetComponent<VisualSigilsMovement>();
                 if (movement != null)
-                {
                     movement.OnEnterIdlePhase = null;
-                }
                 Destroy(obj);
             }
         }
-        
+
         releasedObjects.Clear();
         objectSessionIDs.Clear();
         followerDirections.Clear();
         followerIsIdling.Clear();
         sessionLeaders.Clear();
         sessionFollowers.Clear();
+
+        // 🧩 FIX: Re-initialize base session after clearing
+        sessionLeaders[currentSessionID] = null;
+        sessionFollowers[currentSessionID] = new List<int>();
 
         foreach (var stand in emotionVisuals)
             stand.SetActive(false);
@@ -460,8 +510,11 @@ public class EmotionSigilSO : MonoBehaviour
 
         UpdateSessionStatusUI();
         UpdateNewSessionButton();
-        Debug.Log("Reset complete — back to emotional zero point 🌙");
+        Debug.Log("Reset complete — back to emotional zero point");
+
+        LoadData();
     }
+
 
     #region JSON Settings
     void SaveData()
@@ -478,7 +531,6 @@ public class EmotionSigilSO : MonoBehaviour
         {
             if (releasedObjects[i] != null)
             {
-                string emotionLabel = GetPrefabLabelText(releasedObjects[i]);
                 string emotionDescription = GetPrefabDescriptionText(releasedObjects[i]);
 
                 var emotionData = new EmotionData
@@ -486,7 +538,6 @@ public class EmotionSigilSO : MonoBehaviour
                     position = releasedObjects[i].transform.position,
                     emotionName = releasedObjects[i].name,
                     sessionID = objectSessionIDs[i],
-                    emotionLabel = emotionLabel,
                     emotionDescription = emotionDescription
                 };
 
@@ -511,16 +562,6 @@ public class EmotionSigilSO : MonoBehaviour
 
         string json = JsonUtility.ToJson(data, true);
         File.WriteAllText(savePath, json);
-    }
-
-    string GetPrefabLabelText(GameObject prefabInstance)
-    {
-        VisualSigilsMovement movement = prefabInstance.GetComponent<VisualSigilsMovement>();
-        if (movement != null && movement.labelText != null)
-        {
-            return movement.labelText.text;
-        }
-        return string.Empty;
     }
 
     string GetPrefabDescriptionText(GameObject prefabInstance)
@@ -556,6 +597,16 @@ public class EmotionSigilSO : MonoBehaviour
             sessionLeaders.Clear();
             sessionFollowers.Clear();
 
+            // RE-INITIALIZE THE CURRENT SESSION AFTER CLEARING
+            if (!sessionLeaders.ContainsKey(currentSessionID))
+            {
+                sessionLeaders[currentSessionID] = null;
+            }
+            if (!sessionFollowers.ContainsKey(currentSessionID))
+            {
+                sessionFollowers[currentSessionID] = new List<int>();
+            }
+
             foreach (var emotionData in data.emotions)
             {
                 if (emotionData.emotionType >= 0 && emotionData.emotionType < emotionPrefabs.Length)
@@ -580,7 +631,17 @@ public class EmotionSigilSO : MonoBehaviour
             {
                 string sessionID = objectSessionIDs[i];
                 
+                // ENSURE THE SESSION EXISTS IN DICTIONARIES
                 if (!sessionLeaders.ContainsKey(sessionID))
+                {
+                    sessionLeaders[sessionID] = null;
+                }
+                if (!sessionFollowers.ContainsKey(sessionID))
+                {
+                    sessionFollowers[sessionID] = new List<int>();
+                }
+                
+                if (sessionLeaders[sessionID] == null)
                 {
                     sessionLeaders[sessionID] = releasedObjects[i].transform;
                     followerIsIdling.Add(false);
@@ -591,10 +652,6 @@ public class EmotionSigilSO : MonoBehaviour
                     followerDirections.Add(directionToLeader);
                     followerIsIdling.Add(false);
 
-                    if (!sessionFollowers.ContainsKey(sessionID))
-                    {
-                        sessionFollowers[sessionID] = new List<int>();
-                    }
                     sessionFollowers[sessionID].Add(i);
 
                     VisualSigilsMovement movement = releasedObjects[i].GetComponent<VisualSigilsMovement>();

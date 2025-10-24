@@ -381,17 +381,16 @@ MonoBehaviour:
   - {fileID: 1551832496984777772}
   - {fileID: 6339861464519966952}
   emotionPrefabs:
-  - {fileID: 8326830307659964913, guid: 615eb79568c13ce4894225007b61c274, type: 3}
-  - {fileID: 5426367001451497778, guid: 203ebe07d1ebcd445b124ad42a2bb3a6, type: 3}
-  - {fileID: 6896967553191192193, guid: 155b3ede91b23fa46bb752ec69169ae9, type: 3}
-  - {fileID: 2675314893391985115, guid: 1ee45b82570f92c478038509c3546fc4, type: 3}
-  - {fileID: 8987645635673239527, guid: 2a0963c124e6fd641a70ad4be39cbd77, type: 3}
+  - {fileID: 2155023379979354007, guid: a0fc7e743e258b2438238eccbcf7c21f, type: 3}
+  - {fileID: 5150658854235822455, guid: 1074e3d26a2fcb94ebf924d833112a64, type: 3}
+  - {fileID: 684067741202043457, guid: fc8c1a6526d1c9044b7a6cc0d6906f23, type: 3}
+  - {fileID: 306971176307349761, guid: 5443004b8e48eec4ea94dd63d486b627, type: 3}
+  - {fileID: 5673370631929724847, guid: 2249b4f938b7e46448fa1f9605698083, type: 3}
   followSmoothness: 0.1
   minFollowDistance: 1.2
   maxFollowDistance: 2.5
   heightVariation: 0.5
   noEntryRadius: 1.5
-  idleProximityRadius: 2.2
 --- !u!4 &221023132
 Transform:
   m_ObjectHideFlags: 0

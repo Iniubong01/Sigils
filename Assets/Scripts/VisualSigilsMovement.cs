@@ -16,9 +16,8 @@ public class VisualSigilsMovement : MonoBehaviour
 
     public System.Action OnEnterIdlePhase;
 
-    [Header("Text References")]
-    public TMP_Text labelText; // CHANGE: TMP_Text instead of TMP_InputField
-    public TMP_Text descriptionText; // CHANGE: TMP_Text instead of TMP_InputField
+    [Header("Text Reference")]
+    public TMP_Text descriptionText; // descriptionText 
     public bool canChangeThisText = true;
 
     private Vector3 currentDirection;
@@ -47,10 +46,7 @@ public class VisualSigilsMovement : MonoBehaviour
     public void SetText(string label, string description)
     {
         if (!canChangeThisText) return;
-
-        if (labelText != null)
-            labelText.text = label;
-        
+ 
         if (descriptionText != null)
             descriptionText.text = description;
     }
