@@ -454,7 +454,7 @@ public class EmotionSigilSO : MonoBehaviour
 
         if (Time.frameCount % 120 == 0)
         {
-            SaveData();
+            SaveData();  // You can modify this whole if statement
         }
     }
 
@@ -480,7 +480,7 @@ public class EmotionSigilSO : MonoBehaviour
             {
                 // Smooth lerp follow, using followSmoothness as speed factor
                 container.transform.position = Vector3.Lerp(container.transform.position,
-                                                            leaderTransform.position, followSmoothness);  // This line controls the lerping to leader's position
+                                                            leaderTransform.position, followSmoothness * Time.deltaTime);  // This line controls the follower's lerping to leader's position
             }
         }
     }
@@ -505,24 +505,24 @@ public class EmotionSigilSO : MonoBehaviour
 
                 GameObject follower = releasedObjects[followerIndex];
                 VisualSigilsMovement movement = follower.GetComponent<VisualSigilsMovement>();
-                if (movement == null) continue;
+
+                if (movement == null) continue;  // Add function to stop updating follower's position in relation to it's session leader
 
                 float distance = Vector3.Distance(follower.transform.position, sessionLeader.position);
 
-                // Retrieve or create a persistent offset for this follower
+                // Retrieve or create a offset for this follower
                 if (i >= followerDirections.Count)
                     followerDirections.Add(Random.insideUnitSphere * 2f);
 
                 Vector3 offset = followerDirections[i];
 
                 // CHASE MODE (outside range)
-                if (distance > maxFollowDistance)     /// This line keeps their following in check, initially i had this sticking and shaky aggressive follow
+                if (distance > maxFollowDistance)     /// This line keeps their following in check, initially I had this sticking and shaky aggressive follow
                 {
                     Vector3 chaseTarget = sessionLeader.position + offset;
-                    follower.transform.position = Vector3.Lerp(
-                        follower.transform.position,
-                        chaseTarget,
-                        followSmoothness
+                    follower.transform.position = Vector3.Lerp(follower.transform.position,
+                                                                chaseTarget,
+                                                                followSmoothness * Time.deltaTime
                     );
                 }
                 else
@@ -546,13 +546,13 @@ public class EmotionSigilSO : MonoBehaviour
                         follower.transform.position = Vector3.MoveTowards(
                             follower.transform.position,
                             desiredPos,
-                            followSmoothness
+                            followSmoothness * Time.deltaTime
                         );
                     }
                     else
                     {
                         // Snap perfectly into place when within the threshold to prevent wiggle
-                        follower.transform.position = Vector3.Lerp(follower.transform.position, desiredPos, followSmoothness);  // smmooth out into position around player
+                        follower.transform.position = Vector3.Lerp(follower.transform.position, desiredPos, followSmoothness * Time.deltaTime);  // smmooth out into position around player
                         // follower.transform.position = desiredPos; // Initially I had this, which was causing a terrible fast snap. Was thinking of using dotween for this tho, but that will need more time, so we'll make do with this
                     }
                 }
