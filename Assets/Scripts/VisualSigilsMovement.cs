@@ -1,7 +1,6 @@
 using UnityEngine;
 using System.Collections;
 using TMPro;
-using UnityEngine.UI;
 
 public class VisualSigilsMovement : MonoBehaviour
 {
@@ -12,12 +11,12 @@ public class VisualSigilsMovement : MonoBehaviour
     public float bobSpeed = 1f;
 
     public bool IsIdling { get; private set; } = false;
-    public bool hasBeenReleasedBefore = false;
+    public bool hasBeenReleasedBefore = false;  // ← Saved from JSON; true means skip drift
 
     public System.Action OnEnterIdlePhase;
 
     [Header("Text Reference")]
-    public TMP_Text descriptionText; // descriptionText 
+    public TMP_Text descriptionText;
     public bool canChangeThisText = true;
 
     private Vector3 currentDirection;
@@ -28,25 +27,30 @@ public class VisualSigilsMovement : MonoBehaviour
         currentDirection = Random.onUnitSphere;
         currentDirection.y = Mathf.Abs(currentDirection.y) * 0.3f;
         currentDirection = currentDirection.normalized;
-        
-        driftCoroutine = StartCoroutine(DriftAndIdle());
 
-        // Disable text changes after a short delay (once text is set from EmotionSigilSO)
+        // ✅ If this sigil has been released before, skip drifting and idle instantly.
+        if (hasBeenReleasedBefore)
+        {
+            EnterIdlePhaseImmediately();
+        }
+        else
+        {
+            driftCoroutine = StartCoroutine(DriftAndIdle());
+        }
+
         StartCoroutine(DisableTextChanges());
     }
 
     IEnumerator DisableTextChanges()
     {
-        // Wait a moment for EmotionSigilSO to set the text, then lock it
         yield return new WaitForSeconds(1f);
         canChangeThisText = false;
     }
 
-    // Public method to set the text (called from EmotionSigilSO)
     public void SetText(string label, string description)
     {
         if (!canChangeThisText) return;
- 
+
         if (descriptionText != null)
             descriptionText.text = description;
     }
@@ -66,6 +70,10 @@ public class VisualSigilsMovement : MonoBehaviour
         if (!IsIdling)
         {
             EnterIdlePhaseImmediately();
+
+            // ✅ Once it has completed drifting, mark it as "released before" 
+            // so future sessions know not to drift again.
+            hasBeenReleasedBefore = true;
         }
     }
 
@@ -74,15 +82,14 @@ public class VisualSigilsMovement : MonoBehaviour
         if (IsIdling) return;
 
         IsIdling = true;
-        
+
         if (driftCoroutine != null)
         {
             StopCoroutine(driftCoroutine);
             driftCoroutine = null;
         }
-        
+
         Debug.Log($"{gameObject.name} entering idle phase");
-        
         OnEnterIdlePhase?.Invoke();
 
         StartCoroutine(IdleBobbing());

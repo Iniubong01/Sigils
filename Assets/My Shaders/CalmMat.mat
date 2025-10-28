@@ -43,10 +43,13 @@ Material:
     m_Ints: []
     m_Floats:
     - _Float: 1
+    - _FresnelOpacity: 1.59
+    - _Fresnel_Intensity: 6.5
     - _QueueControl: 0
     - _QueueOffset: 0
     - _Speed: 0.3
     - _Speed_1: 0.6
+    - _TransparencyAmount: 0.3
     - _WaveStrenght: 0.06
     m_Colors:
     - _BaseColour: {r: 1.0490029, g: 4, b: 3.1651926, a: 0}

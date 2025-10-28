@@ -43,13 +43,16 @@ Material:
     m_Ints: []
     m_Floats:
     - _Float: 2
+    - _FresnelOpacity: 1.59
+    - _Fresnel_Intensity: 6.5
     - _QueueControl: 0
     - _QueueOffset: 0
     - _Speed: 10
     - _Speed_1: 3
+    - _TransparencyAmount: 0.32
     - _WaveStrenght: 0.06
     m_Colors:
-    - _BaseColour: {r: 23.96863, g: 1.0830517, b: 0.23300427, a: 0}
+    - _BaseColour: {r: 5.9921575, g: 0.27076292, b: 0.058251068, a: 0}
     - _NoiseColour: {r: 1, g: 0.23529412, b: 0.09803922, a: 0.007843138}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

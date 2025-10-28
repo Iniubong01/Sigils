@@ -6,6 +6,8 @@ using UnityEngine.UI;
 using System.Linq;
 using System.IO;
 
+  // Before I start I love this "#region && #endregion" "preprocessor directives"
+  // - It helps me organize my methods and I can easily see the regions from the "minimap" on the right
 [System.Serializable]
 public class EmotionData
 {
@@ -19,12 +21,20 @@ public class EmotionData
 }
 
 [System.Serializable]
+public class ContainerData   // For the parent container
+{
+    public string sessionID;
+    public Vector3 position;
+}
+
+[System.Serializable]
 public class SaveData
 {
     public string sessionID;
     public float releaseCounter;
     public bool isSessionCompleted;
     public List<EmotionData> emotions = new List<EmotionData>();
+    public List<ContainerData> containers = new List<ContainerData>(); // NEW
 }
 
 public class EmotionSigilSO : MonoBehaviour
@@ -44,18 +54,21 @@ public class EmotionSigilSO : MonoBehaviour
     [SerializeField] private TMP_Text counterText;
     [SerializeField] private TMP_Text sessionStatusText;
 
-    [Header("Stand Emotion Objects (Shown on Dropdown)")]
+    [Tooltip("Sigils (emotion objects) on the stand"), Header("Stand Emotion Objects (Shown on Dropdown)")]
     [SerializeField] private GameObject[] emotionVisuals;
 
-    [Header("Floating Emotion Prefabs (Spawned on Release)")]
+    [Tooltip("Sigils (emotion objects) prefabs to be spawned"), Header("Floating Emotion Prefabs (Spawned on Release)")]
     [SerializeField] private GameObject[] emotionPrefabs;
+
+    [Tooltip("The transparent parent prefab, that acts as a parent grouper"), Header("Parent Container Prefab")]   
+    [SerializeField] private GameObject leaderContainerPrefab;  // The transparent parent prefab, that acts as a parent grouper
 
     [Header("Follower Settings")]
     [SerializeField] private float followSmoothness = 2.0f;
     [SerializeField] private float minFollowDistance = 2.0f;
     [SerializeField] private float maxFollowDistance = 3.5f;
     [SerializeField] private float heightVariation = 0.3f;
-    [SerializeField] private float noEntryRadius = 1.5f;
+    [Tooltip("This controls how close the objects are the leader of that session"), SerializeField] private float closeRange = 1.5f, closeRadius;  /// This controls how close the objects are the leader of that session
 
     private float releaseCounter = 0;
     private bool isSessionCompleted = false;
@@ -69,6 +82,7 @@ public class EmotionSigilSO : MonoBehaviour
     private Dictionary<string, List<int>> sessionFollowers = new Dictionary<string, List<int>>();
     private string savePath;
     private string currentSessionID;
+    private List<GameObject> sessionContainers = new List<GameObject>();
 
     void Start()
     {
@@ -273,6 +287,13 @@ public class EmotionSigilSO : MonoBehaviour
             leader = released.transform;
             followerIsIdling.Add(false);
             Debug.Log($"New leader set for session {currentSessionID}: {released.name}");
+
+            // Listen for leader idle event
+            VisualSigilsMovement leaderMovement = released.GetComponent<VisualSigilsMovement>();
+            if (leaderMovement != null)
+            {
+                leaderMovement.OnEnterIdlePhase += () => OnLeaderEnteredIdle(currentSessionID);
+            }
         }
         else
         {
@@ -316,7 +337,7 @@ public class EmotionSigilSO : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning("VisualSigilsMovement component not found on prefab");
+            Debug.LogWarning("VisualSigilsMovement script is not found on prefab");
         }
     }
 
@@ -328,6 +349,84 @@ public class EmotionSigilSO : MonoBehaviour
             Debug.Log($"Follower {followerIndex} stopped following - now idling");
         }
     }
+
+    void OnLeaderEnteredIdle(string sessionID)
+    {
+        if (string.IsNullOrEmpty(sessionID))
+        {
+            Debug.LogWarning("OnLeaderEnteredIdle called with null or empty sessionID.");
+            return;
+        }
+
+        if (!sessionLeaders.ContainsKey(sessionID) || sessionLeaders[sessionID] == null)
+        {
+            Debug.LogWarning($"No leader found for session {sessionID}. Cannot create container.");
+            return;
+        }
+
+        Transform leaderTransform = sessionLeaders[sessionID];
+
+        // Find existing container by name (if previously created/saved)
+        GameObject existingContainer = sessionContainers.Find(
+            c => c != null && c.name == $"LeaderContainer_{sessionID}"
+        );
+
+        GameObject container;
+
+        if (existingContainer != null)
+        {
+            container = existingContainer;
+            // In case the saved container exists but was at a wrong position, snap it to leader now:
+            container.transform.position = leaderTransform.position;
+            Debug.Log($"Reusing existing container for session {sessionID}.");
+        }
+        else
+        {
+            if (leaderContainerPrefab == null)
+            {
+                Debug.LogWarning("Leader container prefab not assigned!");
+                return;
+            }
+
+            container = Instantiate(leaderContainerPrefab, leaderTransform.position, Quaternion.identity);
+            container.name = $"LeaderContainer_{sessionID}";
+
+            TMP_Text idText = container.GetComponentInChildren<TMP_Text>();
+            if (idText != null)
+                idText.text = $"Session {sessionID}";
+
+            sessionContainers.Add(container);
+            Debug.Log($"Container spawned for session {sessionID} at {leaderTransform.position}");
+        }
+
+        // Parent followers to the container so they stay visually inside it.
+        if (sessionFollowers.ContainsKey(sessionID))
+        {
+            foreach (int followerIndex in sessionFollowers[sessionID])
+            {
+                if (followerIndex >= 0 && followerIndex < releasedObjects.Count)
+                {
+                    GameObject follower = releasedObjects[followerIndex];
+                    if (follower != null)
+                        follower.transform.SetParent(container.transform, true);
+                }
+            }
+        }
+
+        // Note: DO NOT parent the leader to the container. Instead we make the container follow the leader every frame.
+        // That keeps leader's own movement logic intact while visually grouping everything.
+    }
+
+
+    IEnumerator FollowLeader(Transform container, Transform leader)   /// Optional for smooth follow, but I figure fast parenting will be proper
+    {
+        while (container != null && leader != null)
+        {
+            container.position = Vector3.Lerp(container.position, leader.position, followSmoothness);
+            yield return null;
+        }
+    }
+
 
     Vector3 CreateRandomDirection()
     {
@@ -343,7 +442,7 @@ public class EmotionSigilSO : MonoBehaviour
     }
     #endregion
 
-    #region Update and Follower Functionality
+    #region UPDATE AND FOLLOWER FUNCTIONALITY
     void Update()
     {
         counterText.text = releaseCounter.ToString("0");
@@ -351,11 +450,41 @@ public class EmotionSigilSO : MonoBehaviour
 
         UpdateFollowerPositions();
 
+        UpdateContainersFollow(); // <-- keep containers following leaders
+
         if (Time.frameCount % 120 == 0)
         {
             SaveData();
         }
     }
+
+    #region FOLLOWER LERP
+    void UpdateContainersFollow()
+    {
+        // For every session container, find the matching leader and move container to leader.position
+        for (int i = sessionContainers.Count - 1; i >= 0; i--)
+        {
+            var container = sessionContainers[i];
+            if (container == null)
+            {
+                sessionContainers.RemoveAt(i);
+                continue;
+            }
+
+            // extract sessionID from name
+            string name = container.name; // "LeaderContainer_001"
+            string sessionID = name.StartsWith("LeaderContainer_") ? name.Replace("LeaderContainer_", "") : null;
+            if (string.IsNullOrEmpty(sessionID)) continue;
+
+            if (sessionLeaders.TryGetValue(sessionID, out Transform leaderTransform) && leaderTransform != null)
+            {
+                // Smooth lerp follow, using followSmoothness as speed factor
+                container.transform.position = Vector3.Lerp(container.transform.position,
+                                                            leaderTransform.position, followSmoothness);  // This line controls the lerping to leader's position
+            }
+        }
+    }
+    #endregion
 
     void UpdateFollowerPositions()
     {
@@ -376,9 +505,8 @@ public class EmotionSigilSO : MonoBehaviour
 
                 GameObject follower = releasedObjects[followerIndex];
                 VisualSigilsMovement movement = follower.GetComponent<VisualSigilsMovement>();
-                if (movement == null || movement.IsIdling) continue;
+                if (movement == null) continue;
 
-                // Calculate distance and get direction toward leader
                 float distance = Vector3.Distance(follower.transform.position, sessionLeader.position);
 
                 // Retrieve or create a persistent offset for this follower
@@ -387,14 +515,14 @@ public class EmotionSigilSO : MonoBehaviour
 
                 Vector3 offset = followerDirections[i];
 
-                // --- CHASE MODE (outside range) ---
-                if (distance > maxFollowDistance)
+                // CHASE MODE (outside range)
+                if (distance > maxFollowDistance)     /// This line keeps their following in check, initially i had this sticking and shaky aggressive follow
                 {
                     Vector3 chaseTarget = sessionLeader.position + offset;
                     follower.transform.position = Vector3.Lerp(
                         follower.transform.position,
                         chaseTarget,
-                        followSmoothness * Time.deltaTime
+                        followSmoothness
                     );
                 }
                 else
@@ -408,34 +536,50 @@ public class EmotionSigilSO : MonoBehaviour
                     );
 
                     Vector3 desiredPos = formationTarget + bobOffset;
-                    follower.transform.position = Vector3.Lerp(
-                        follower.transform.position,
-                        desiredPos,
-                        followSmoothness * Time.deltaTime
-                    );
+
+                    float distToTarget = Vector3.Distance(follower.transform.position, desiredPos);
+
+                    // Only move if significantly far from desired position
+                    if (distToTarget > closeRadius)
+                    {
+                        // Move smoothly toward the desired position without overshooting or jitter
+                        follower.transform.position = Vector3.MoveTowards(
+                            follower.transform.position,
+                            desiredPos,
+                            followSmoothness
+                        );
+                    }
+                    else
+                    {
+                        // Snap perfectly into place when within the threshold to prevent wiggle
+                        follower.transform.position = Vector3.Lerp(follower.transform.position, desiredPos, followSmoothness);  // smmooth out into position around player
+                        // follower.transform.position = desiredPos; // Initially I had this, which was causing a terrible fast snap. Was thinking of using dotween for this tho, but that will need more time, so we'll make do with this
+                    }
                 }
             }
         }
     }
 
-// Returns smooth triangular positions around the leader
-Vector3 GetTriangleFormationPosition(int index, Transform leader)
-{
-    // Index 0,1,2 form a triangle
-    // If more than 3 followers appear, they wrap to next ring automatically
-    float spacing = minFollowDistance + (index / 3) * 0.5f;
-    int posInTri = index % 3;
 
-    Vector3 right = leader.right * spacing;
-    Vector3 forward = leader.forward * spacing;
-
-    switch (posInTri)
+    #region POSITION AROUND LEADER
+    // Returns smooth triangular positions around the leader
+    Vector3 GetTriangleFormationPosition(int index, Transform leader)
     {
-        case 0: return leader.position + (-right + forward);
-        case 1: return leader.position + (right + forward);
-        default: return leader.position + (-forward * 1.2f);
+        // "closeRange" directly affects spacing — higher = looser formation, lower = tighter
+        float spacing = closeRange + (index / 3) * 0.5f;
+        int posInTri = index % 3;
+
+        Vector3 right = leader.right * spacing;
+        Vector3 forward = leader.forward * spacing;
+
+        switch (posInTri)
+        {
+            case 0: return leader.position + (-right + forward);
+            case 1: return leader.position + (right + forward);
+            default: return leader.position + (-forward * 1.2f);
+        }
     }
-}
+    #endregion
 
 
     int GetFollowerDirectionIndex(int followerIndex, string sessionID)
@@ -469,36 +613,50 @@ Vector3 GetTriangleFormationPosition(int index, Transform leader)
         }
     }
 
+    #region Reset Data
     public void ResetAllData()
     {
+        // Delete the save file if it exists
         if (File.Exists(savePath)) File.Delete(savePath);
+
         releaseCounter = 0;
         isSessionCompleted = false;
         leader = null;
         currentSessionID = "001";
 
+        // CLEAR ALL EMOTION OBJECTS ---
         foreach (var obj in releasedObjects)
         {
             if (obj != null)
             {
                 VisualSigilsMovement movement = obj.GetComponent<VisualSigilsMovement>();
                 if (movement != null)
-                    movement.OnEnterIdlePhase = null;
+                    movement.OnEnterIdlePhase = null; // clear event to avoid dangling references
                 Destroy(obj);
             }
         }
-
         releasedObjects.Clear();
         objectSessionIDs.Clear();
         followerDirections.Clear();
         followerIsIdling.Clear();
+
+        //  Clear all session containers (the transparent parents) ---
+        foreach (var container in sessionContainers)
+        {
+            if (container != null)
+                Destroy(container);
+        }
+        sessionContainers.Clear(); // clear the list after destruction
+
+        // RESET DICTIONARIES
         sessionLeaders.Clear();
         sessionFollowers.Clear();
 
-        // 🧩 FIX: Re-initialize base session after clearing
+        // Re-initialize base session after clearing
         sessionLeaders[currentSessionID] = null;
         sessionFollowers[currentSessionID] = new List<int>();
 
+        // UI RESET ---
         foreach (var stand in emotionVisuals)
             stand.SetActive(false);
 
@@ -510,11 +668,12 @@ Vector3 GetTriangleFormationPosition(int index, Transform leader)
 
         UpdateSessionStatusUI();
         UpdateNewSessionButton();
-        Debug.Log("Reset complete — back to emotional zero point");
+
+        Debug.Log("Reset complete — back to emotional zero point (containers cleared too!)");
 
         LoadData();
     }
-
+    #endregion
 
     #region JSON Settings
     void SaveData()
@@ -524,44 +683,52 @@ Vector3 GetTriangleFormationPosition(int index, Transform leader)
             sessionID = currentSessionID,
             releaseCounter = releaseCounter,
             isSessionCompleted = isSessionCompleted,
-            emotions = new List<EmotionData>()
+            emotions = new List<EmotionData>(),
+            containers = new List<ContainerData>()
         };
 
+        // Save emotions (already existing code)
         for (int i = 0; i < releasedObjects.Count; i++)
         {
-            if (releasedObjects[i] != null)
+            if (releasedObjects[i] == null) continue;
+
+            string emotionDescription = GetPrefabDescriptionText(releasedObjects[i]);
+            var emotionData = new EmotionData
             {
-                string emotionDescription = GetPrefabDescriptionText(releasedObjects[i]);
+                position = releasedObjects[i].transform.position,
+                emotionName = releasedObjects[i].name,
+                sessionID = objectSessionIDs[i],
+                emotionDescription = emotionDescription,
+                emotionType = (int)GetEmotionTypeFromName(releasedObjects[i].name)
+            };
 
-                var emotionData = new EmotionData
-                {
-                    position = releasedObjects[i].transform.position,
-                    emotionName = releasedObjects[i].name,
-                    sessionID = objectSessionIDs[i],
-                    emotionDescription = emotionDescription
-                };
+            data.emotions.Add(emotionData);
+        }
 
-                VisualSigilsMovement movement = releasedObjects[i].GetComponent<VisualSigilsMovement>();
-                if (movement != null)
-                {
-                    emotionData.sessionID = objectSessionIDs[i];
-                }
+        // Save containers
+        foreach (var container in sessionContainers)
+        {
+            if (container == null) continue;
 
-                foreach (EmotionType emotionType in System.Enum.GetValues(typeof(EmotionType)))
-                {
-                    if (releasedObjects[i].name.Contains(emotionType.ToString()))
-                    {
-                        emotionData.emotionType = (int)emotionType;
-                        break;
-                    }
-                }
+            ContainerData cData = new ContainerData
+            {
+                sessionID = container.name.Replace("LeaderContainer_", ""),
+                position = container.transform.position
+            };
 
-                data.emotions.Add(emotionData);
-            }
+            data.containers.Add(cData);
         }
 
         string json = JsonUtility.ToJson(data, true);
         File.WriteAllText(savePath, json);
+    }
+
+    EmotionType GetEmotionTypeFromName(string name)
+    {
+        foreach (EmotionType type in System.Enum.GetValues(typeof(EmotionType)))
+            if (name.Contains(type.ToString()))
+                return type;
+        return EmotionType.Calm;
     }
 
     string GetPrefabDescriptionText(GameObject prefabInstance)
@@ -573,7 +740,6 @@ Vector3 GetTriangleFormationPosition(int index, Transform leader)
         }
         return string.Empty;
     }
-
     void LoadData()
     {
         if (!File.Exists(savePath)) return;
@@ -588,6 +754,7 @@ Vector3 GetTriangleFormationPosition(int index, Transform leader)
             releaseCounter = data.releaseCounter;
             isSessionCompleted = data.isSessionCompleted;
 
+            // Clear only the released sigils and related runtime lists (do NOT clear sessionContainers)
             foreach (var obj in releasedObjects)
                 if (obj != null) Destroy(obj);
             releasedObjects.Clear();
@@ -607,15 +774,16 @@ Vector3 GetTriangleFormationPosition(int index, Transform leader)
                 sessionFollowers[currentSessionID] = new List<int>();
             }
 
+            // Recreate all released emotions from save
             foreach (var emotionData in data.emotions)
             {
                 if (emotionData.emotionType >= 0 && emotionData.emotionType < emotionPrefabs.Length)
                 {
                     GameObject prefab = emotionPrefabs[emotionData.emotionType];
                     GameObject released = Instantiate(prefab, emotionData.position, Quaternion.identity);
-                    
+
                     SetPrefabText(released, emotionData.emotionLabel, emotionData.emotionDescription);
-                    
+
                     releasedObjects.Add(released);
                     objectSessionIDs.Add(emotionData.sessionID);
 
@@ -627,10 +795,27 @@ Vector3 GetTriangleFormationPosition(int index, Transform leader)
                 }
             }
 
+            // Rebuild containers from save (do NOT destroy existing containers — reset handles that)
+            foreach (var cData in data.containers)
+            {
+                if (leaderContainerPrefab == null)
+                    continue;
+
+                GameObject container = Instantiate(leaderContainerPrefab, cData.position, Quaternion.identity);
+                container.name = $"LeaderContainer_{cData.sessionID}";
+
+                TMP_Text idText = container.GetComponentInChildren<TMP_Text>();
+                if (idText != null)
+                    idText.text = $"Session {cData.sessionID}";
+
+                sessionContainers.Add(container); // keep track so SaveData can pick it up later
+            }
+
+            // Rebuild leader/follower mappings (leaders come from the instantiated releasedObjects)
             for (int i = 0; i < releasedObjects.Count; i++)
             {
                 string sessionID = objectSessionIDs[i];
-                
+
                 // ENSURE THE SESSION EXISTS IN DICTIONARIES
                 if (!sessionLeaders.ContainsKey(sessionID))
                 {
@@ -640,7 +825,7 @@ Vector3 GetTriangleFormationPosition(int index, Transform leader)
                 {
                     sessionFollowers[sessionID] = new List<int>();
                 }
-                
+
                 if (sessionLeaders[sessionID] == null)
                 {
                     sessionLeaders[sessionID] = releasedObjects[i].transform;
@@ -679,5 +864,6 @@ Vector3 GetTriangleFormationPosition(int index, Transform leader)
             isSessionCompleted = false;
         }
     }
+
     #endregion
 }
